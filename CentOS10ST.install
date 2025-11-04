@@ -9,12 +9,12 @@ echo -e "\e[5;38;5;213m |  _ \\| \\ | || ____| \\ | || \\ | | / ___|| | | |/ ___
 echo -e "\e[5;38;5;45m | |_) |  \\| ||  _| |  \\| ||  \\| | \\___ \\| | | | |  _  \e[0m"
 echo -e "\e[5;38;5;213m |  __/| |\\  || |___| |\\  || |\\  |  ___) | |_| | |_| | \e[0m"
 echo -e "\e[5;38;5;201m |_|   |_| \\_||_____|_| \\_||_| \\_| |____/ \\___/ \\____| \e[0m"
-echo -e "\e[5;38;5;45m      👑 Việt_Anh_Code™ | CentOS 10 Full V2\e[0m"
+echo -e "\e[5;38;5;45m      👑 Việt_Anh_Code™ | CentOS 9 Full Cyberpunk\e[0m"
 }
 
 logo
 
-echo "🚀 Bắt đầu cài đặt Panel Server CentOS 10..."
+echo "🚀 Bắt đầu cài đặt Panel Server CentOS 9..."
 echo " Lưu Ý: Nếu domain chưa trỏ về IP này, để trống để truy cập bằng IP"
 echo "--------------------------------------------------"
 
@@ -38,40 +38,44 @@ PANEL_USER="panel_user"
 PANEL_PASS=$(openssl rand -base64 12)
 MYSQL_ROOT_PASS=$(openssl rand -base64 16)
 
-# ===== Vault repos =====
+# ===== Repos Vault và Remi =====
 mkdir -p /etc/yum.repos.d/backup
 mv /etc/yum.repos.d/CentOS-*.repo /etc/yum.repos.d/backup/ 2>/dev/null || true
 
-cat > /etc/yum.repos.d/CentOS-Stream-10.repo <<EOF
+cat > /etc/yum.repos.d/CentOS-Stream-9.repo <<EOF
 [BaseOS]
-name=CentOS Stream 10 - BaseOS
-baseurl=http://mirror.centos.org/centos/10-stream/BaseOS/x86_64/os/
+name=CentOS Stream 9 - BaseOS
+baseurl=http://mirror.centos.org/centos/9-stream/BaseOS/x86_64/os/
 enabled=1
 gpgcheck=0
+
 [AppStream]
-name=CentOS Stream 10 - AppStream
-baseurl=http://mirror.centos.org/centos/10-stream/AppStream/x86_64/os/
+name=CentOS Stream 9 - AppStream
+baseurl=http://mirror.centos.org/centos/9-stream/AppStream/x86_64/os/
 enabled=1
 gpgcheck=0
 EOF
 
-yum clean all && yum makecache fast
-yum install -y epel-release wget yum-utils git
+dnf clean all
+dnf makecache
+dnf install -y epel-release wget yum-utils git
 
 # ===== PHP/Nginx/MariaDB =====
-yum install -y php php-cli php-fpm php-mysqlnd php-mbstring php-xml php-gd php-curl nginx mariadb-server mariadb
+dnf install -y https://rpms.remirepo.net/enterprise/remi-release-9.rpm
+dnf module enable php:remi-8.2 -y
+dnf install -y php php-cli php-fpm php-mysqlnd php-mbstring php-xml php-gd php-curl nginx mariadb-server mariadb
 systemctl enable --now php-fpm nginx mariadb
 
 # ===== MariaDB setup =====
 systemctl start mariadb
-mysql -u root <<EOF
+mysql -u root <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASS}';
 FLUSH PRIVILEGES;
 CREATE DATABASE IF NOT EXISTS ${PANEL_DB};
 CREATE USER IF NOT EXISTS '${PANEL_USER}'@'localhost' IDENTIFIED BY '${PANEL_PASS}';
 GRANT ALL PRIVILEGES ON ${PANEL_DB}.* TO '${PANEL_USER}'@'localhost';
 FLUSH PRIVILEGES;
-EOF
+SQL
 
 # ===== phpMyAdmin =====
 mkdir -p /var/www/html/phpmyadmin
