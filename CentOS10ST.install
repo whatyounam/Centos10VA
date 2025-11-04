@@ -9,9 +9,8 @@ echo -e "\e[5;38;5;213m |  _ \\| \\ | || ____| \\ | || \\ | | / ___|| | | |/ ___
 echo -e "\e[5;38;5;45m | |_) |  \\| ||  _| |  \\| ||  \\| | \\___ \\| | | | |  _  \e[0m"
 echo -e "\e[5;38;5;213m |  __/| |\\  || |___| |\\  || |\\  |  ___) | |_| | |_| | \e[0m"
 echo -e "\e[5;38;5;201m |_|   |_| \\_||_____|_| \\_||_| \\_| |____/ \\___/ \\____| \e[0m"
-echo -e "\e[5;38;5;45m      👑 Việt_Anh_Code™ | CentOS 9 Mt\e[0m"
+echo -e "\e[5;38;5;45m      👑 Việt_Anh_Code™ | CentOS 9 Stream Cyberpunk\e[0m"
 }
-
 logo
 
 echo "🚀 Bắt đầu cài đặt Panel Server CentOS 9..."
@@ -28,7 +27,7 @@ fi
 read -p "Nhập domain quản trị server (hoặc để trống dùng IP): " ADMIN_DOMAIN
 read -p "Nhập port quản trị server (VD:2025): " ADMIN_PORT
 
-# ===== User Web admin =====
+# ===== Web admin user =====
 WEB_ADMIN_USER="admin"
 WEB_ADMIN_PASS=$(openssl rand -base64 12)
 
@@ -38,27 +37,30 @@ PANEL_USER="panel_user"
 PANEL_PASS=$(openssl rand -base64 12)
 MYSQL_ROOT_PASS=$(openssl rand -base64 16)
 
-# ===== Vault repos CentOS 9 =====
+# ===== Backup old repos =====
 mkdir -p /etc/yum.repos.d/backup
 mv /etc/yum.repos.d/CentOS-*.repo /etc/yum.repos.d/backup/ 2>/dev/null || true
 
+# ===== CentOS 9 Stream Vault repo =====
 cat > /etc/yum.repos.d/CentOS-Stream-9.repo <<EOF
 [BaseOS]
 name=CentOS Stream 9 - BaseOS
-baseurl=http://mirror.centos.org/centos/9-stream/BaseOS/x86_64/os/
+baseurl=http://vault.centos.org/9-stream/BaseOS/x86_64/os/
 enabled=1
 gpgcheck=0
+
 [AppStream]
 name=CentOS Stream 9 - AppStream
-baseurl=http://mirror.centos.org/centos/9-stream/AppStream/x86_64/os/
+baseurl=http://vault.centos.org/9-stream/AppStream/x86_64/os/
 enabled=1
 gpgcheck=0
 EOF
 
-yum clean all && yum makecache
-yum install -y epel-release wget yum-utils git unzip
+yum clean all
+yum makecache
+yum install -y epel-release wget yum-utils unzip git
 
-# ===== PHP/Nginx/MariaDB =====
+# ===== PHP + Nginx + MariaDB =====
 yum install -y php php-cli php-fpm php-mysqlnd php-mbstring php-xml php-gd php-curl nginx mariadb-server mariadb
 systemctl enable --now php-fpm nginx mariadb
 
@@ -105,39 +107,11 @@ server {
     server_name ${ADMIN_DOMAIN:-_};
     root /var/www/html;
     index index.php index.html index.htm;
-
-    # Panel admin
-    location / {
-        try_files \$uri \$uri/ /index.php;
-    }
-
-    # phpMyAdmin
-    location /phpmyadmin {
-        if (!-f /root/panel_pass_changed) { return 403; }
-        index index.php;
-        try_files \$uri \$uri/ =404;
-        location ~ \.php\$ {
-            include fastcgi_params;
-            fastcgi_pass unix:${PHP_FPM_SOCK};
-            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-        }
-    }
-
-    # TinyFileManager
-    location /filemanager {
-        if (!-f /root/panel_pass_changed) { return 403; }
-        index index.php;
-        try_files \$uri \$uri/ =404;
-        location ~ \.php\$ {
-            include fastcgi_params;
-            fastcgi_pass unix:${PHP_FPM_SOCK};
-            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-        }
-    }
-
+    location / { try_files \$uri \$uri/ =404; }
     location ~ \.php\$ {
         include fastcgi_params;
         fastcgi_pass unix:${PHP_FPM_SOCK};
+        fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
     }
 }
@@ -175,9 +149,8 @@ chmod 600 /root/panel_install_backup/panel_credentials.txt
 
 # ===== Hoàn tất =====
 echo ""
-echo "🎉 Hoàn tất cài đặt! Thông tin đăng nhập admin:"
+echo "🎉 Hoàn tất cài đặt! Thông tin đăng nhập:"
 cat /root/panel_install_backup/panel_credentials.txt
 echo ""
-echo "💡 Lưu ý: Truy cập phpMyAdmin và FileManager chỉ khả dụng sau khi đổi pass admin trên panel!"
 read -p "Nhấn Enter để reboot máy áp dụng toàn bộ cài đặt..."
 reboot
