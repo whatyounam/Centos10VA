@@ -93,7 +93,7 @@ chmod -R 755 /var/www/html/phpmyadmin
 # ===== TinyFileManager =====
 FM_DIR="/var/www/html/filemanager"
 mkdir -p $FM_DIR
-wget -O $FM_DIR/index.php https://github.com/prasathmani/tinyfilemanager/releases/download/2.4.13/tinyfilemanager.php
+wget -O $FM_DIR/index.php https://github.com/prasathmani/tinyfilemanager/releases/latest/download/tinyfilemanager.php
 cat > "$FM_DIR/tfm-config.php" <<EOF
 <?php
 \$username = '$WEB_ADMIN_USER';
