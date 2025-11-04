@@ -3,13 +3,13 @@ set -e
 
 # ===== Logo Cyberpunk =====
 logo() {
-clear
-echo -e "\e[5;38;5;45m  ____  _   _  _____ _   _  _   _   ____  _   _  ____ \e[0m"
-echo -e "\e[5;38;5;213m |  _ \\| \\ | || ____| \\ | || \\ | | / ___|| | | |/ ___| \e[0m"
-echo -e "\e[5;38;5;45m | |_) |  \\| ||  _| |  \\| ||  \\| | \\___ \\| | | | |  _  \e[0m"
-echo -e "\e[5;38;5;213m |  __/| |\\  || |___| |\\  || |\\  |  ___) | |_| | |_| | \e[0m"
-echo -e "\e[5;38;5;201m |_|   |_| \\_||_____|_| \\_||_| \\_| |____/ \\___/ \\____| \e[0m"
-echo -e "\e[5;38;5;45m      👑 Việt_Anh_Code™ | CentOS 9 Stream Cyberpunk\e[0m"
+    clear
+    echo -e "\e[5;38;5;45m  ____  _   _  _____ _   _  _   _   ____  _   _  ____ \e[0m"
+    echo -e "\e[5;38;5;213m |  _ \\| \\ | || ____| \\ | || \\ | | / ___|| | | |/ ___| \e[0m"
+    echo -e "\e[5;38;5;45m | |_) |  \\| ||  _| |  \\| ||  \\| | \\___ \\| | | | |  _  \e[0m"
+    echo -e "\e[5;38;5;213m |  __/| |\\  || |___| |\\  || |\\  |  ___) | |_| | |_| | \e[0m"
+    echo -e "\e[5;38;5;201m |_|   |_| \\_||_____|_| \\_||_| \\_| |____/ \\___/ \\____| \e[0m"
+    echo -e "\e[5;38;5;45m      👑 Việt_Anh_Code™ | CentOS 9 Test \e[0m"
 }
 logo
 
@@ -27,7 +27,7 @@ fi
 read -p "Nhập domain quản trị server (hoặc để trống dùng IP): " ADMIN_DOMAIN
 read -p "Nhập port quản trị server (VD:2025): " ADMIN_PORT
 
-# ===== Web admin user =====
+# ===== User Web admin =====
 WEB_ADMIN_USER="admin"
 WEB_ADMIN_PASS=$(openssl rand -base64 12)
 
@@ -42,7 +42,7 @@ mkdir -p /etc/yum.repos.d/backup
 mv /etc/yum.repos.d/CentOS-*.repo /etc/yum.repos.d/backup/ 2>/dev/null || true
 
 # ===== CentOS 9 Stream Vault repo =====
-nano /etc/yum.repos.d/CentOS-Stream-9.repo <<EOF
+cat > /etc/yum.repos.d/CentOS-Stream-9.repo <<EOF
 [BaseOS]
 name=CentOS Stream 9 - BaseOS
 baseurl=https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/
@@ -58,16 +58,20 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
 EOF
 
-yum clean all
-yum makecache
-yum install -y epel-release wget yum-utils unzip git
+dnf clean all
+dnf makecache -y
+dnf install -y epel-release wget yum-utils unzip git
 
 # ===== PHP + Nginx + MariaDB =====
-yum install -y php php-cli php-fpm php-mysqlnd php-mbstring php-xml php-gd php-curl nginx mariadb-server mariadb
+dnf install -y php php-cli php-fpm php-mysqlnd php-mbstring php-xml php-gd php-curl nginx mariadb-server mariadb
 systemctl enable --now php-fpm nginx mariadb
 
-# ===== MariaDB setup =====
+# ===== Fix MariaDB nếu lỗi socket =====
+systemctl stop mariadb || true
+rm -f /var/lib/mysql/mysql.sock
 systemctl start mariadb
+
+# ===== MariaDB setup =====
 mysql -u root <<EOF
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASS}';
 FLUSH PRIVILEGES;
