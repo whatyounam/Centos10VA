@@ -1,164 +1,227 @@
 #!/bin/bash
-set -e
+# CentOS Stream 9 Full Panel Installer
+# Features: nginx + php8.2 (Remi) + MariaDB 10.11 + phpMyAdmin + TinyFileManager + certbot + firewall safe + creds backup
+set -euo pipefail
+IFS=$'\n\t'
 
-# ====== LOGO ======
-logo() {
-echo -e "\e[1;35m     ____  _   _  _____ _   _  _   _   ____  _   _  ____  \e[0m"
-echo -e "\e[1;36m    |  _ \\| \\ | || ____| \\ | || \\ | | / ___|| | | |/ ___| \e[0m"
-echo -e "\e[1;35m    | |_) |  \\| ||  _| |  \\| ||  \\| | \\___ \\| | | | |  _   \e[0m"
-echo -e "\e[1;36m    |  __/| |\\  || |___| |\\  || |\\  |  ___) | |_| | |_| |  \e[0m"
-echo -e "\e[1;35m    |_|   |_| \\_||_____|_| \\_||_| \\_| |____/ \\___/ \\____|  \e[0m"
-echo -e "\e[1;36m          👑 Việt_Anh_Code™ 2025 | CentOS Stream 10 Safe V3+\e[0m"
+# --- UI ---
+logo(){
+  echo -e "\e[1;35m
+   ____      _   _  _   _   ____   __  __
+  / ___| ___| |_| \| | | \ | |  _ \|  \/  |
+ | |  _ / _ \ __| .\` | |  \| | | | | |\/| |
+ | |_| |  __/ |_| |\  | | |\  | |_| | |  | |
+  \____|\___|\__|_| \_| |_| \_|____/|_|  |_|
+  \e[0m"
+  echo -e "\e[1;36m  Việt_Anh_Code™ — CentOS9 Panel Full Installer\e[0m"
+  echo
 }
 
-clear
-logo
-echo "🚀 Bắt đầu cài đặt Panel Server trên CentOS Stream 10..."
-echo "--------------------------------------------------"
-# ====== Kiểm tra root ======
-if [ "$(id -u)" != "0" ]; then
-  echo "❌ Phải chạy bằng quyền root!"
+# --- root check
+if [ "$(id -u)" -ne 0 ]; then
+  echo "⚠️  Chạy với quyền root nhé (sudo su)"
   exit 1
 fi
 
-# ====== Nhập thông tin ======
-read -p "Nhập domain quản trị server ( Nhớ Là Đã Trỏ IP Của SSH Này Về Tên Miền Của Bạn Thì Mới Nhập Domain Nha ) - (hoặc để trống dùng IP): " ADMIN_DOMAIN
-read -p "Nhập port quản trị server (VD: 2025): " ADMIN_PORT
-read -p "Nhập username quản trị Web admin (mặc định: admin): " WEB_ADMIN_USER
+logo
+echo "🚀 Bắt đầu cài đặt — script sẽ hỏi vài thông tin..."
+
+# --- Ask inputs
+read -p "Nhập domain ( Nếu Chưa Trỏ Tên Miền Về Ip Máy Mà Nhập Vào Đây Thì Script Sẽ Kết Thúc ) - (VD: domain.com) hoặc ENTER để dùng IP: " ADMIN_DOMAIN
+read -p "Port panel (mặc định 2025): " ADMIN_PORT
+ADMIN_PORT=${ADMIN_PORT:-2025}
+read -p "Web admin username (mặc định: admin): " WEB_ADMIN_USER
 WEB_ADMIN_USER=${WEB_ADMIN_USER:-admin}
 
-# ====== Random mật khẩu ======
+# Generate passwords
 PANEL_DB="panel_db"
 PANEL_USER="panel_user"
 PANEL_PASS=$(openssl rand -base64 12)
 WEB_ADMIN_PASS=$(openssl rand -base64 12)
 MYSQL_ROOT_PASS=$(openssl rand -base64 16)
 
-# ====== Cập nhật hệ thống ======
-dnf clean all
-dnf makecache -y
-dnf update -y
+# Detect primary IP (first non-loopback)
+PRIMARY_IP=$(ip -4 addr show scope global | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1 || echo "127.0.0.1")
+echo "IP máy hiện tại: $PRIMARY_IP"
 
-# ====== Cài đặt gói cơ bản ======
-dnf install -y epel-release dnf-utils wget curl unzip git nano firewalld
+# Ask extra allowed IP (so you don't lock yourself)
+read -p "Nhập 1 IP khác được phép truy cập panel (hoặc ENTER để chỉ cho phép IP này máy): " EXTRA_IP
 
-# ====== Kích hoạt Remi Repo (PHP 8.2) ======
-dnf install -y https://rpms.remirepo.net/enterprise/remi-release-10.rpm
-dnf module reset php -y
-dnf module enable php:remi-8.2 -y
+# --- Prepare system
+echo "🧹 Clean & update hệ thống..."
+dnf -y clean all
+dnf -y update
+dnf -y install epel-release wget curl unzip git nano dnf-plugins-core
 
-# ====== Cài Nginx + PHP + MariaDB ======
-dnf install -y nginx php php-cli php-fpm php-mysqlnd php-xml php-gd php-curl php-mbstring php-zip php-json
+# --- Remi PHP 8.2
+echo "📦 Cài Remi (PHP 8.2)..."
+dnf -y install https://rpms.remirepo.net/enterprise/remi-release-9.rpm
+dnf module reset -y php || true
+dnf module enable -y php:remi-8.2
 
-# MariaDB 11 repo
-cat > /etc/yum.repos.d/MariaDB.repo <<EOF
+# --- MariaDB repo (10.11) for RHEL9
+echo "🧱 Cấu hình repo MariaDB 10.11..."
+cat > /etc/yum.repos.d/MariaDB.repo <<'EOF'
 [mariadb]
 name = MariaDB
-baseurl = https://mirror.mariadb.org/yum/11.4/centos9-amd64
+baseurl = https://mirror.mariadb.org/yum/10.11/rhel9-amd64
 gpgkey=https://yum.mariadb.org/RPM-GPG-KEY-MariaDB
 gpgcheck=1
 enabled=1
 EOF
 
-dnf install -y MariaDB-server MariaDB-client
+dnf -y makecache
 
-systemctl enable --now mariadb nginx php-fpm firewalld
+# --- Install core packages
+echo "🔧 Cài Nginx, PHP-FPM, MariaDB..."
+dnf -y install nginx php php-cli php-fpm php-mysqlnd php-xml php-gd php-mbstring php-curl php-json php-zip mariadb-server
 
-# ====== Thiết lập MariaDB ======
-mysql -u root <<EOF
+# Enable services
+systemctl enable --now nginx php-fpm mariadb
+
+# --- Secure MariaDB + create DB/user
+echo "🔒 Thiết lập MariaDB..."
+# start mysqld if not running
+systemctl start mariadb || true
+# set root password and create panel db + user (if root has empty password this will succeed)
+mysql -u root <<SQL || true
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASS}';
 FLUSH PRIVILEGES;
 CREATE DATABASE IF NOT EXISTS ${PANEL_DB};
 CREATE USER IF NOT EXISTS '${PANEL_USER}'@'localhost' IDENTIFIED BY '${PANEL_PASS}';
 GRANT ALL PRIVILEGES ON ${PANEL_DB}.* TO '${PANEL_USER}'@'localhost';
 FLUSH PRIVILEGES;
-EOF
+SQL
 
-# ====== Thiết lập SSH ======
-SSH_PORT=2222
-read -p "Nhập port SSH (mặc định 2222): " TMP_SSH
-SSH_PORT=${TMP_SSH:-2222}
-cp /etc/ssh/sshd_config "/etc/ssh/sshd_config.bak_$(date +%F_%H%M)"
-sed -i '/^#Port /c\Port '"$SSH_PORT"'' /etc/ssh/sshd_config
-systemctl restart sshd
-firewall-cmd --permanent --add-port=${SSH_PORT}/tcp
-
-# ====== Mở port firewall ======
-firewall-cmd --permanent --add-service=http
-firewall-cmd --permanent --add-service=https
-firewall-cmd --reload
-
-# ====== Cài phpMyAdmin ======
+# --- phpMyAdmin
+echo "📚 Cài phpMyAdmin..."
 mkdir -p /var/www/html/phpmyadmin
-wget -O /tmp/phpmyadmin.zip https://files.phpmyadmin.net/phpMyAdmin/5.2.1/phpMyAdmin-5.2.1-all-languages.zip
-unzip /tmp/phpmyadmin.zip -d /var/www/html/phpmyadmin/
-mv /var/www/html/phpmyadmin/phpMyAdmin-5.2.1-all-languages/* /var/www/html/phpmyadmin/
-rm -rf /tmp/phpmyadmin.zip /var/www/html/phpmyadmin/phpMyAdmin-5.2.1-all-languages
+PHPMYADMIN_VER="5.2.1"
+wget -qO /tmp/phpmyadmin.zip "https://files.phpmyadmin.net/phpMyAdmin/${PHPMYADMIN_VER}/phpMyAdmin-${PHPMYADMIN_VER}-all-languages.zip"
+unzip -q /tmp/phpmyadmin.zip -d /tmp/
+rm -rf /var/www/html/phpmyadmin/*
+mv /tmp/phpMyAdmin-${PHPMYADMIN_VER}-all-languages/* /var/www/html/phpmyadmin/
+rm -rf /tmp/phpMyAdmin-${PHPMYADMIN_VER}-all-languages /tmp/phpmyadmin.zip
 chown -R nginx:nginx /var/www/html/phpmyadmin
+chmod -R 755 /var/www/html/phpmyadmin
 
-# ====== Cài TinyFileManager ======
+# --- TinyFileManager
+echo "🗂️ Cài TinyFileManager..."
 mkdir -p /var/www/html/filemanager
-wget -O /var/www/html/filemanager/index.php https://github.com/prasathmani/tinyfilemanager/releases/download/2.4.13/tinyfilemanager.php
+wget -qO /var/www/html/filemanager/index.php "https://github.com/prasathmani/tinyfilemanager/releases/download/2.4.13/tinyfilemanager.php"
 cat > /var/www/html/filemanager/tfm-config.php <<EOF
 <?php
-\$username = '$WEB_ADMIN_USER';
-\$password = '$WEB_ADMIN_PASS';
+\$username = '${WEB_ADMIN_USER}';
+\$password = '${WEB_ADMIN_PASS}';
 \$salt = '';
 \$upload_dir = __DIR__;
 ?>
 EOF
 chown -R nginx:nginx /var/www/html/filemanager
+chmod -R 755 /var/www/html/filemanager
 
-# ====== Nginx cấu hình panel ======
+# --- Nginx panel config
+echo "🛠️ Cấu hình Nginx cho panel ở port ${ADMIN_PORT}..."
 PHP_FPM_SOCK="/run/php-fpm/www.sock"
-
 cat > /etc/nginx/conf.d/panel.conf <<EOF
 server {
-    listen ${ADMIN_PORT};
+    listen ${ADMIN_PORT} default_server;
     server_name ${ADMIN_DOMAIN:-_};
     root /var/www/html;
-    index index.php index.html;
+    index index.php index.html index.htm;
+
     location / {
         try_files \$uri \$uri/ =404;
     }
+
     location ~ \.php\$ {
         include fastcgi_params;
         fastcgi_pass unix:${PHP_FPM_SOCK};
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
         fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    }
+
+    location ^~ /phpmyadmin {
+        root /var/www/html;
+        index index.php;
+        location ~ \.php\$ {
+            include fastcgi_params;
+            fastcgi_pass unix:${PHP_FPM_SOCK};
+            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        }
+    }
+
+    location ^~ /filemanager {
+        root /var/www/html;
+        index index.php;
     }
 }
 EOF
-nginx -t && systemctl restart nginx
 
-# ====== Firewall chỉ 2 IP truy cập panel ======
-PRIMARY_IP=$(hostname -I | awk '{print $1}')
-echo "IP gốc của máy: $PRIMARY_IP"
-read -p "Nhập 1 IP khác được phép truy cập panel: " EXTRA_IP
-ALLOWED_IPS=("$PRIMARY_IP" "$EXTRA_IP")
+nginx -t && systemctl reload nginx
 
-for ip in "${ALLOWED_IPS[@]}"; do
-    firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='$ip' port port=${ADMIN_PORT} protocol=tcp accept"
+# --- Firewall setup (safe) ---
+echo "🔐 Cấu hình firewalld an toàn..."
+systemctl enable --now firewalld
+firewall-cmd --permanent --add-service=http
+firewall-cmd --permanent --add-service=https
+firewall-cmd --permanent --add-port=${ADMIN_PORT}/tcp
+# always ensure SSH port 22 allowed; we'll not change SSH port automatically here
+firewall-cmd --permanent --add-service=ssh
+
+# Allow primary IP and extra IP (if provided)
+ALLOWED=("${PRIMARY_IP}")
+if [ -n "${EXTRA_IP:-}" ]; then ALLOWED+=("${EXTRA_IP}"); fi
+
+# Remove any previous panel drop rule (best-effort)
+firewall-cmd --permanent --remove-rich-rule="rule family='ipv4' port port=${ADMIN_PORT} protocol=tcp drop" 2>/dev/null || true
+
+for ip in "${ALLOWED[@]}"; do
+  ip=$(echo "$ip" | xargs)
+  firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='${ip}' port port=${ADMIN_PORT} protocol=tcp accept"
 done
+
+# finally drop others
 firewall-cmd --permanent --add-rich-rule="rule family='ipv4' port port=${ADMIN_PORT} protocol=tcp drop"
 firewall-cmd --reload
 
-# ====== Ghi thông tin ======
+# --- SSL via Certbot (optional)
+if [ -n "${ADMIN_DOMAIN}" ]; then
+  echo "🔐 Cài certbot và request Let's Encrypt cho ${ADMIN_DOMAIN}..."
+  dnf -y install certbot python3-certbot-nginx
+  # try to obtain cert (will fail if domain not pointed)
+  if ping -c1 "${ADMIN_DOMAIN}" >/dev/null 2>&1; then
+    certbot --nginx -d "${ADMIN_DOMAIN}" --non-interactive --agree-tos -m admin@"${ADMIN_DOMAIN}" --redirect || echo "⚠️ Certbot failed — domain có thể chưa trỏ đúng."
+    systemctl reload nginx || true
+  else
+    echo "⚠️ Domain ${ADMIN_DOMAIN} chưa trỏ tới server — bỏ qua cài SSL."
+  fi
+fi
+
+# --- Save credentials
+echo "💾 Lưu thông tin đăng nhập vào /root/panel_install_backup/panel_credentials.txt"
 mkdir -p /root/panel_install_backup
 cat > /root/panel_install_backup/panel_credentials.txt <<EOF
-SSH port: $SSH_PORT
-MySQL root: $MYSQL_ROOT_PASS
-Database panel: $PANEL_DB
-DB user: $PANEL_USER
-DB password: $PANEL_PASS
-Web admin user: $WEB_ADMIN_USER
-Web admin password: $WEB_ADMIN_PASS
+SSH (unchanged): use your server SSH credentials
+Panel port: ${ADMIN_PORT}
 Panel URL: http://${ADMIN_DOMAIN:-$PRIMARY_IP}:${ADMIN_PORT}
 phpMyAdmin: http://${ADMIN_DOMAIN:-$PRIMARY_IP}:${ADMIN_PORT}/phpmyadmin
 FileManager: http://${ADMIN_DOMAIN:-$PRIMARY_IP}:${ADMIN_PORT}/filemanager
+
+MySQL root: ${MYSQL_ROOT_PASS}
+Database: ${PANEL_DB}
+DB user: ${PANEL_USER}
+DB pass: ${PANEL_PASS}
+
+Web admin user: ${WEB_ADMIN_USER}
+Web admin pass: ${WEB_ADMIN_PASS}
 EOF
 chmod 600 /root/panel_install_backup/panel_credentials.txt
 
-echo ""
-read -p "🎉 Hoàn tất cài đặt! Nhấn Enter để reboot máy và áp dụng cấu hình..." 
+# --- Final message + reboot prompt
+echo
+echo "🎉 Hoàn tất! Kiểm tra /root/panel_install_backup/panel_credentials.txt để lấy thông tin."
+echo "Truy cập panel: http://${ADMIN_DOMAIN:-$PRIMARY_IP}:${ADMIN_PORT}"
+echo
+read -p "Nhấn Enter để reboot (hoặc Ctrl+C để giữ lại và kiểm tra)..."
 reboot
